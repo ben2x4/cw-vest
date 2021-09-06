@@ -1,16 +1,23 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "InstantiateMsg",
+  "title": "PaymentState",
   "type": "object",
   "required": [
-    "schedule"
+    "id",
+    "paid",
+    "payment"
   ],
   "properties": {
-    "schedule": {
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/Payment"
-      }
+    "id": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "paid": {
+      "type": "boolean"
+    },
+    "payment": {
+      "$ref": "#/definitions/Payment"
     }
   },
   "definitions": {
