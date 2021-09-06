@@ -1,8 +1,8 @@
+use crate::state::PaymentState;
+use cosmwasm_std::{Addr, Uint128};
+use cw0::Expiration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use cosmwasm_std::{Uint128, Addr};
-use cw0::{Expiration};
-use crate::state::PaymentState;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -21,7 +21,7 @@ pub struct Payment {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Pay{},
+    Pay {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

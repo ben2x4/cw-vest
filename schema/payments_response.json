@@ -1,15 +1,15 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "InstantiateMsg",
+  "title": "PaymentsResponse",
   "type": "object",
   "required": [
-    "schedule"
+    "payments"
   ],
   "properties": {
-    "schedule": {
+    "payments": {
       "type": "array",
       "items": {
-        "$ref": "#/definitions/Payment"
+        "$ref": "#/definitions/PaymentState"
       }
     }
   },
@@ -94,6 +94,27 @@
               "type": "null"
             }
           ]
+        }
+      }
+    },
+    "PaymentState": {
+      "type": "object",
+      "required": [
+        "id",
+        "paid",
+        "payment"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "paid": {
+          "type": "boolean"
+        },
+        "payment": {
+          "$ref": "#/definitions/Payment"
         }
       }
     },

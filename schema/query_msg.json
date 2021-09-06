@@ -5,10 +5,10 @@
     {
       "type": "object",
       "required": [
-        "get_count"
+        "get_payments"
       ],
       "properties": {
-        "get_count": {
+        "get_payments": {
           "type": "object"
         }
       },
