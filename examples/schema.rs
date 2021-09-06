@@ -3,7 +3,7 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use cw_vesting::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, PaymentsResponse};
+use cw_vesting::msg::{ExecuteMsg, InstantiateMsg, PaymentsResponse, QueryMsg};
 use cw_vesting::state::PaymentState;
 
 fn main() {

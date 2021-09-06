@@ -1,13 +1,13 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Storage, StdResult};
-use cw_storage_plus::{Item, Map, U64Key};
 use crate::msg::Payment;
+use cosmwasm_std::{StdResult, Storage};
+use cw_storage_plus::{Item, Map, U64Key};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct PaymentState {
-    pub Payment:Payment,
+    pub payment: Payment,
     pub paid: bool,
     pub id: u64,
 }
