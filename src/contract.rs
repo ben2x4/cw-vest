@@ -111,12 +111,12 @@ pub fn get_native_payment(p: &Payment) -> StdResult<CosmosMsg> {
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::GetPayments {} => to_binary(&query_payments(deps)?),
+        QueryMsg::GetPayments {} => to_binary(&query_payments(deps)),
     }
 }
 
-fn query_payments(deps: Deps) -> StdResult<PaymentsResponse> {
-    Ok(PaymentsResponse {
+fn query_payments(deps: Deps) -> PaymentsResponse {
+    PaymentsResponse {
         payments: PAYMENTS
             .range(deps.storage, None, None, Order::Ascending)
             .filter_map(|p| match p {
@@ -124,7 +124,7 @@ fn query_payments(deps: Deps) -> StdResult<PaymentsResponse> {
                 Err(_) => None,
             })
             .collect(),
-    })
+    }
 }
 
 #[cfg(test)]
