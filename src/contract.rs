@@ -1,13 +1,13 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Order, Response,
+    Addr, to_binary, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Order, Response,
     StdResult, WasmMsg,
 };
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, Payment, PaymentsResponse, QueryMsg};
-use crate::state::{next_id, PaymentState, PAYMENTS};
+use crate::state::{next_id, PaymentState, PAYMENTS, CONFIG, Config};
 use cw20::Cw20ExecuteMsg;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -17,6 +17,14 @@ pub fn instantiate(
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
+
+    let owner = deps.api.addr_validate(msg.owner.as_str())?;
+    let config = Config {
+        owner: owner.clone(),
+        enabled: true
+    };
+    CONFIG.save(deps.storage, &config)?;
+
     for p in msg.schedule.into_iter() {
         let id = next_id(deps.storage)?;
         PAYMENTS.save(
@@ -30,22 +38,41 @@ pub fn instantiate(
         )?;
     }
     Ok(Response::new().add_attribute("method", "instantiate"))
-    //.add_attribute("count", msg.schedule))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
     deps: DepsMut,
     env: Env,
-    _info: MessageInfo,
+    info: MessageInfo,
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::Pay {} => execute_pay(deps, env),
+        ExecuteMsg::UpdateConfig  { owner, enabled } => execute_update_config(info, deps, owner, enabled),
     }
 }
 
-pub fn execute_pay(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
+pub fn execute_update_config(info: MessageInfo, deps: DepsMut, owner: Addr, enabled: bool) -> Result<Response, ContractError> {
+    let mut config: Config = CONFIG.load(deps.storage)?;
+    if info.sender != config.owner {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    config.owner = owner;
+    config.enabled = enabled;
+
+    CONFIG.save(deps.storage, &config)?;
+    Ok(Response::new())
+}
+
+pub fn execute_pay(deps: DepsMut, env: Env) -> Result<Response, ContractError> 
+{   
+    let config: Config = CONFIG.load(deps.storage)?;
+    if !config.enabled {
+        return Err(ContractError::PaymentsDisabled {});
+
+    }
     let to_be_paid: Vec<PaymentState> = PAYMENTS
         .range(deps.storage, None, None, Order::Ascending)
         .filter_map(|r| match r {
@@ -71,7 +98,6 @@ pub fn execute_pay(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
     }
 
     Ok(Response::new().add_messages(payment_msgs))
-    //.add_attribute("paid", to_be_paid))
 }
 
 pub fn get_payment_message(p: &Payment) -> StdResult<CosmosMsg> {
@@ -135,17 +161,14 @@ mod tests {
     use cw0::Expiration;
     use cw20::{Cw20Coin, Cw20Contract};
     use cw_multi_test::{
-        next_block, App, AppResponse, BankKeeper, Contract, ContractWrapper, Executor,
+        next_block, App, BankKeeper, Contract, ContractWrapper, Executor, AppResponse
     };
-    use std::borrow::Cow::Owned;
-    use std::fmt::Error;
 
     const OWNER: &str = "owner0001";
     const FUNDER: &str = "funder";
     const PAYEE2: &str = "payee0002";
     const PAYEE3: &str = "payee0003";
 
-    const NATIVE_TOKEN_DENOM: &str = "ujuno";
     const INITIAL_BALANCE: u128 = 2000000;
 
     pub fn contract_vest() -> Box<dyn Contract<Empty>> {
@@ -208,7 +231,7 @@ mod tests {
 
     fn instantiate_vest(app: &mut App, payments: Vec<Payment>) -> Addr {
         let flex_id = app.store_code(contract_vest());
-        let msg = crate::msg::InstantiateMsg { schedule: payments };
+        let msg = crate::msg::InstantiateMsg { owner: Addr::unchecked(OWNER), schedule: payments };
         app.instantiate_contract(flex_id, Addr::unchecked(OWNER), &msg, &[], "flex", None)
             .unwrap()
     }
@@ -222,7 +245,7 @@ mod tests {
         (owner, funder, voter2, voter3)
     }
 
-    fn fund_vest_contract(app: &mut App, vest: Addr, cw20: Addr, funder: Addr, amount: Uint128) {
+    fn fund_vest_contract(app: &mut App, vest: Addr, cw20: Addr, funder: Addr, amount: Uint128) -> AppResponse {
         app.execute_contract(
             funder,
             cw20,
@@ -231,14 +254,14 @@ mod tests {
                 amount,
             },
             &vec![],
-        );
+        ).unwrap()
     }
 
     #[test]
     fn proper_initialization() {
         let mut deps = mock_dependencies(&[]);
 
-        let msg = InstantiateMsg { schedule: vec![] };
+        let msg = InstantiateMsg { owner: Addr::unchecked(OWNER), schedule: vec![] };
         let info = mock_info("creator", &coins(1000, "earth"));
 
         // we can just call .unwrap() to assert this was a success
@@ -264,6 +287,7 @@ mod tests {
         };
         let payment2 = payment.clone();
         let msg = InstantiateMsg {
+            owner: Addr::unchecked(OWNER),
             schedule: vec![payment.clone(), payment2],
         };
         let info = mock_info("creator", &coins(1000, "earth"));
@@ -282,10 +306,9 @@ mod tests {
     fn proper_initialization_integration() {
         let mut app = mock_app();
 
-        let (owner, funder, _payee2, _payee3) = get_accounts();
+        let (owner, _funder, _payee2, _payee3) = get_accounts();
 
         let cw20_addr = instantiate_cw20(&mut app);
-        let cw20 = Cw20Contract(cw20_addr.clone());
 
         let payments = vec![Payment {
             recipient: owner,
@@ -295,7 +318,7 @@ mod tests {
             time: Default::default(),
         }];
 
-        let vest_addr = instantiate_vest(&mut app, payments);
+        instantiate_vest(&mut app, payments);
     }
 
     #[test]
@@ -486,7 +509,7 @@ mod tests {
     fn single_native_payment() {
         let mut app = mock_app();
 
-        let (owner, funder, _payee2, _payee3) = get_accounts();
+        let (owner, _funder, _payee2, _payee3) = get_accounts();
 
         let denom = String::from("ujuno");
         let payments = vec![Payment {
@@ -500,7 +523,7 @@ mod tests {
         let vest_addr = instantiate_vest(&mut app, payments);
 
         // Fund vest contract
-        app.init_bank_balance(&vest_addr, vec![coin(1, denom.clone())]);
+        app.init_bank_balance(&vest_addr, vec![coin(1, denom.clone())]).unwrap();
 
         let owner_balance = |app: &App<Empty>| {
             app.wrap()
@@ -531,10 +554,9 @@ mod tests {
     fn multiple_native_payment() {
         let mut app = mock_app();
 
-        let (owner, funder, _payee2, _payee3) = get_accounts();
+        let (owner, _funder, _payee2, _payee3) = get_accounts();
 
-        let cw20_addr = instantiate_cw20(&mut app);
-        let cw20 = Cw20Contract(cw20_addr.clone());
+        instantiate_cw20(&mut app);
 
         let current_height = app.block_info().height;
 
@@ -573,7 +595,7 @@ mod tests {
         let vest_addr = instantiate_vest(&mut app, payments);
 
         // Fund vest contract
-        app.init_bank_balance(&vest_addr, vec![coin(10, denom.clone())]);
+        app.init_bank_balance(&vest_addr, vec![coin(10, denom.clone())]).unwrap();
 
         let owner_balance = |app: &App<Empty>| {
             app.wrap()
@@ -705,7 +727,7 @@ mod tests {
         let vest_addr = instantiate_vest(&mut app, payments);
 
         // Fund vest contract
-        app.init_bank_balance(&vest_addr, vec![coin(3, denom.clone())]);
+        app.init_bank_balance(&vest_addr, vec![coin(3, denom.clone())]).unwrap();
         fund_vest_contract(
             &mut app,
             vest_addr.clone(),

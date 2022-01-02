@@ -12,4 +12,6 @@ pub enum ContractError {
     // Look at https://docs.rs/thiserror/1.0.21/thiserror/ for details.
     #[error("Payment not found")]
     PaymentNotFound {},
+    #[error("Payments are disabled")]
+    PaymentsDisabled {},
 }
