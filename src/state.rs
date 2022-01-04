@@ -2,7 +2,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::msg::Payment;
-use cosmwasm_std::{StdResult, Storage};
+use cosmwasm_std::{Addr, Empty, StdResult, Storage};
 use cw_storage_plus::{Item, Map, U64Key};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -22,3 +22,6 @@ pub fn next_id(store: &mut dyn Storage) -> StdResult<u64> {
     PAYMENT_COUNT.save(store, &id)?;
     Ok(id)
 }
+
+pub const ADMIN_ADDRESS: Item<Addr> = Item::new("admin_address");
+pub const HALTED_PAYEES: Map<Addr, Empty> = Map::new("halted_payees");
