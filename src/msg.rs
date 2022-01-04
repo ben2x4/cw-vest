@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub schedule: Vec<Payment>,
+    pub admin_address: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -22,6 +23,8 @@ pub struct Payment {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     Pay {},
+    HaltPayments { recipient: String },
+    StartPayments { recipient: String },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
