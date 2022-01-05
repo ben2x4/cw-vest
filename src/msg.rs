@@ -25,7 +25,6 @@ pub enum ExecuteMsg {
     Pay {},
     UpdateConfig { owner: Addr, enabled: bool },
 }
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {

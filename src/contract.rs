@@ -20,7 +20,7 @@ pub fn instantiate(
 
     let owner = deps.api.addr_validate(msg.owner.as_str())?;
     let config = Config {
-        owner: owner.clone(),
+        owner,
         enabled: true
     };
     CONFIG.save(deps.storage, &config)?;
@@ -59,11 +59,14 @@ pub fn execute_update_config(info: MessageInfo, deps: DepsMut, owner: Addr, enab
         return Err(ContractError::Unauthorized {});
     }
 
-    config.owner = owner;
+    config.owner = owner.clone();
     config.enabled = enabled;
 
     CONFIG.save(deps.storage, &config)?;
-    Ok(Response::new())
+    Ok(Response::new()
+        .add_attribute("owner", owner.to_string())
+        .add_attribute("enabled", enabled.to_string())
+    )
 }
 
 pub fn execute_pay(deps: DepsMut, env: Env) -> Result<Response, ContractError> 
@@ -71,8 +74,8 @@ pub fn execute_pay(deps: DepsMut, env: Env) -> Result<Response, ContractError>
     let config: Config = CONFIG.load(deps.storage)?;
     if !config.enabled {
         return Err(ContractError::PaymentsDisabled {});
-
     }
+
     let to_be_paid: Vec<PaymentState> = PAYMENTS
         .range(deps.storage, None, None, Order::Ascending)
         .filter_map(|r| match r {
