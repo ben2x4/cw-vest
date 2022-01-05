@@ -60,7 +60,7 @@ jobs:
           command: cargo fmt -- --check
       - run:
           name: Clippy linting on workspace
-          command: cargo clippy --all-targets -- -D warnings
+          command: c
       - save_cache:
           paths:
             - /usr/local/cargo/registry
@@ -91,7 +91,7 @@ jobs:
       - run:
           name: Build Wasm Release
           command: |
-            for C in ./contracts/*/
+            for C in ./*/
             do
               echo "Compiling `basename $C`..."
               (cd $C && cargo build --release --target wasm32-unknown-unknown --locked)
