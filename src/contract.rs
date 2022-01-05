@@ -1,13 +1,13 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Addr, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Order, Response,
+    Addr, to_binary, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Order, Response,
     StdResult, WasmMsg,
 };
 
 use crate::error::ContractError;
-use crate::msg::{ConfigResponse, ExecuteMsg, InstantiateMsg, Payment, PaymentsResponse, QueryMsg};
-use crate::state::{next_id, Config, PaymentState, CONFIG, PAYMENTS};
+use crate::msg::{ExecuteMsg, InstantiateMsg, Payment, PaymentsResponse, QueryMsg, ConfigResponse};
+use crate::state::{next_id, PaymentState, PAYMENTS, CONFIG, Config};
 use cw20::Cw20ExecuteMsg;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -17,10 +17,11 @@ pub fn instantiate(
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
+
     let owner = deps.api.addr_validate(msg.owner.as_str())?;
     let config = Config {
-        owner,
-        enabled: true,
+        owner: owner.clone(),
+        enabled: true
     };
     CONFIG.save(deps.storage, &config)?;
 
@@ -48,18 +49,11 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::Pay {} => execute_pay(deps, env),
-        ExecuteMsg::UpdateConfig { owner, enabled } => {
-            execute_update_config(info, deps, owner, enabled)
-        }
+        ExecuteMsg::UpdateConfig  { owner, enabled } => execute_update_config(info, deps, owner, enabled),
     }
 }
 
-pub fn execute_update_config(
-    info: MessageInfo,
-    deps: DepsMut,
-    owner: Addr,
-    enabled: bool,
-) -> Result<Response, ContractError> {
+pub fn execute_update_config(info: MessageInfo, deps: DepsMut, owner: Addr, enabled: bool) -> Result<Response, ContractError> {
     let mut config: Config = CONFIG.load(deps.storage)?;
     if info.sender != config.owner {
         return Err(ContractError::Unauthorized {});
@@ -72,10 +66,12 @@ pub fn execute_update_config(
     Ok(Response::new())
 }
 
-pub fn execute_pay(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
+pub fn execute_pay(deps: DepsMut, env: Env) -> Result<Response, ContractError> 
+{   
     let config: Config = CONFIG.load(deps.storage)?;
     if !config.enabled {
         return Err(ContractError::PaymentsDisabled {});
+
     }
     let to_be_paid: Vec<PaymentState> = PAYMENTS
         .range(deps.storage, None, None, Order::Ascending)
@@ -161,10 +157,11 @@ fn query_payments(deps: Deps) -> PaymentsResponse {
 fn query_config(deps: Deps) -> StdResult<ConfigResponse> {
     let config: Config = CONFIG.load(deps.storage)?;
     Ok(ConfigResponse {
-        owner: config.owner,
-        enabled: config.enabled,
+       owner: config.owner,
+       enabled: config.enabled
     })
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -174,7 +171,7 @@ mod tests {
     use cw0::Expiration;
     use cw20::{Cw20Coin, Cw20Contract};
     use cw_multi_test::{
-        next_block, App, AppResponse, BankKeeper, Contract, ContractWrapper, Executor,
+        next_block, App, BankKeeper, Contract, ContractWrapper, Executor, AppResponse
     };
 
     const OWNER: &str = "owner0001";
@@ -244,10 +241,7 @@ mod tests {
 
     fn instantiate_vest(app: &mut App, payments: Vec<Payment>) -> Addr {
         let flex_id = app.store_code(contract_vest());
-        let msg = crate::msg::InstantiateMsg {
-            owner: Addr::unchecked(OWNER),
-            schedule: payments,
-        };
+        let msg = crate::msg::InstantiateMsg { owner: Addr::unchecked(OWNER), schedule: payments };
         app.instantiate_contract(flex_id, Addr::unchecked(OWNER), &msg, &[], "flex", None)
             .unwrap()
     }
@@ -261,13 +255,7 @@ mod tests {
         (owner, funder, voter2, voter3)
     }
 
-    fn fund_vest_contract(
-        app: &mut App,
-        vest: Addr,
-        cw20: Addr,
-        funder: Addr,
-        amount: Uint128,
-    ) -> AppResponse {
+    fn fund_vest_contract(app: &mut App, vest: Addr, cw20: Addr, funder: Addr, amount: Uint128) -> AppResponse {
         app.execute_contract(
             funder,
             cw20,
@@ -275,19 +263,15 @@ mod tests {
                 recipient: vest.to_string(),
                 amount,
             },
-            &[],
-        )
-        .unwrap()
+           &[],
+        ).unwrap()
     }
 
     #[test]
     fn proper_initialization() {
         let mut deps = mock_dependencies(&[]);
 
-        let msg = InstantiateMsg {
-            owner: Addr::unchecked(OWNER),
-            schedule: vec![],
-        };
+        let msg = InstantiateMsg { owner: Addr::unchecked(OWNER), schedule: vec![] };
         let info = mock_info("creator", &coins(1000, "earth"));
 
         // we can just call .unwrap() to assert this was a success
@@ -353,14 +337,14 @@ mod tests {
 
         let msg = ExecuteMsg::UpdateConfig {
             owner: Addr::unchecked("owner2"),
-            enabled: false,
+            enabled: false
         };
         execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
         let res = query(deps.as_ref(), mock_env(), QueryMsg::GetConfig {}).unwrap();
         let value: ConfigResponse = from_binary(&res).unwrap();
         assert_eq!(value.owner, Addr::unchecked("owner2"));
-        assert!(value.enabled);
+        assert!(!value.enabled);
 
         // try sending payment while disabled
         let msg = ExecuteMsg::Pay {};
@@ -375,7 +359,7 @@ mod tests {
 
         let msg = ExecuteMsg::UpdateConfig {
             owner: Addr::unchecked(OWNER),
-            enabled: false,
+            enabled: false
         };
         let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
 
@@ -384,6 +368,7 @@ mod tests {
             e => panic!("unexpected error: {}", e),
         }
     }
+
 
     #[test]
     fn get_payments() {
@@ -465,12 +450,17 @@ mod tests {
         assert_eq!(vest_balance, 1);
 
         // Payout vested tokens
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 1);
 
         // Assert payment is not executed twice
-        app.execute_contract(_payee3, vest_addr, &ExecuteMsg::Pay {}, &[])
+        app.execute_contract(_payee3, vest_addr, &ExecuteMsg::Pay {},&[])
             .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 1);
     }
@@ -533,42 +523,77 @@ mod tests {
         assert_eq!(vest_balance, 10);
 
         // Payout vested tokens
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
 
         assert_eq!(owner_balance(&app), initial_balance);
 
         // Update block and pay first payment
         app.update_block(next_block);
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 1);
 
         // Check second call does not make more payments
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 1);
 
         // Update block and make 2nd and 3rd payments
         app.update_block(next_block);
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 5);
 
         // Check second call does not make more payments
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 5);
 
         // Update block and make 4th payments
         app.update_block(next_block);
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 10);
 
         // Check second call does not make more payments
-        app.execute_contract(_payee3, vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3,
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 10);
 
         // Assert contract has spent all funds
@@ -594,8 +619,7 @@ mod tests {
         let vest_addr = instantiate_vest(&mut app, payments);
 
         // Fund vest contract
-        app.init_bank_balance(&vest_addr, vec![coin(1, denom.clone())])
-            .unwrap();
+        app.init_bank_balance(&vest_addr, vec![coin(1, denom.clone())]).unwrap();
 
         let owner_balance = |app: &App<Empty>| {
             app.wrap()
@@ -607,12 +631,17 @@ mod tests {
         let initial_balance = owner_balance(&app);
 
         // Payout vested tokens
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 1);
 
         // Assert payment is not executed twice
-        app.execute_contract(_payee3, vest_addr, &ExecuteMsg::Pay {}, &[])
+        app.execute_contract(_payee3, vest_addr, &ExecuteMsg::Pay {},&[])
             .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 1);
     }
@@ -662,8 +691,7 @@ mod tests {
         let vest_addr = instantiate_vest(&mut app, payments);
 
         // Fund vest contract
-        app.init_bank_balance(&vest_addr, vec![coin(10, denom.clone())])
-            .unwrap();
+        app.init_bank_balance(&vest_addr, vec![coin(10, denom.clone())]).unwrap();
 
         let owner_balance = |app: &App<Empty>| {
             app.wrap()
@@ -675,42 +703,77 @@ mod tests {
         let initial_balance = owner_balance(&app);
 
         // Payout vested tokens
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
 
         assert_eq!(owner_balance(&app), initial_balance);
 
         // Update block and pay first payment
         app.update_block(next_block);
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 1);
 
         // Check second call does not make more payments
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 1);
 
         // Update block and make 2nd and 3rd payments
         app.update_block(next_block);
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 5);
 
         // Check second call does not make more payments
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 5);
 
         // Update block and make 4th payments
         app.update_block(next_block);
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 10);
 
         // Check second call does not make more payments
-        app.execute_contract(_payee3, vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3,
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 10);
     }
 
@@ -760,8 +823,7 @@ mod tests {
         let vest_addr = instantiate_vest(&mut app, payments);
 
         // Fund vest contract
-        app.init_bank_balance(&vest_addr, vec![coin(3, denom.clone())])
-            .unwrap();
+        app.init_bank_balance(&vest_addr, vec![coin(3, denom.clone())]).unwrap();
         fund_vest_contract(
             &mut app,
             vest_addr.clone(),
@@ -783,48 +845,83 @@ mod tests {
         let initial_balance_juno = owner_balance_juno(&app);
 
         // Payout vested tokens
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
 
         assert_eq!(owner_balance_cw20(&app), initial_balance_cw20);
         assert_eq!(owner_balance_juno(&app), initial_balance_juno);
 
         // Update block and pay first payment
         app.update_block(next_block);
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance_cw20(&app), initial_balance_cw20);
         assert_eq!(owner_balance_juno(&app), initial_balance_juno + 1);
 
         // Check second call does not make more payments
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance_cw20(&app), initial_balance_cw20);
         assert_eq!(owner_balance_juno(&app), initial_balance_juno + 1);
 
         // Update block and make 2nd and 3rd payments
         app.update_block(next_block);
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance_cw20(&app), initial_balance_cw20 + 2);
         assert_eq!(owner_balance_juno(&app), initial_balance_juno + 3);
 
         // Check second call does not make more payments
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance_cw20(&app), initial_balance_cw20 + 2);
         assert_eq!(owner_balance_juno(&app), initial_balance_juno + 3);
 
         // Update block and make 4th payments
         app.update_block(next_block);
-        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance_cw20(&app), initial_balance_cw20 + 7);
         assert_eq!(owner_balance_juno(&app), initial_balance_juno + 3);
 
         // Check second call does not make more payments
-        app.execute_contract(_payee3, vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
-            .unwrap();
+        app.execute_contract(
+            _payee3,
+            vest_addr.clone(),
+            &ExecuteMsg::Pay {},
+           &[],
+        )
+        .unwrap();
         assert_eq!(owner_balance_cw20(&app), initial_balance_cw20 + 7);
         assert_eq!(owner_balance_juno(&app), initial_balance_juno + 3);
     }
