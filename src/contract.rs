@@ -349,12 +349,8 @@ mod tests {
         // try sending payment while disabled
         let msg = ExecuteMsg::Pay {};
         let err = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap_err();
-
-        match err {
-            ContractError::PaymentsDisabled {} => {}
-            e => panic!("unexpected error: {}", e),
-        }
-
+        assert_eq!(err, ContractError::PaymentsDisabled {});
+        
         // try updating with invalid owner
 
         let msg = ExecuteMsg::UpdateConfig {
@@ -363,10 +359,7 @@ mod tests {
         };
         let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
 
-        match err {
-            ContractError::Unauthorized {} => {}
-            e => panic!("unexpected error: {}", e),
-        }
+        assert_eq!(err, ContractError::Unauthorized {});
     }
 
 
