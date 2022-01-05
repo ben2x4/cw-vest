@@ -60,7 +60,7 @@ jobs:
           command: cargo fmt -- --check
       - run:
           name: Clippy linting on workspace
-          command: c
+          command: cargo clippy --all-targets -- -D warnings
       - save_cache:
           paths:
             - /usr/local/cargo/registry
