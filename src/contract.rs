@@ -18,9 +18,7 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     let owner = deps.api.addr_validate(msg.owner.as_str())?;
-    let config = Config {
-        owner,
-    };
+    let config = Config { owner };
     CONFIG.save(deps.storage, &config)?;
 
     for p in msg.schedule.into_iter() {
@@ -48,9 +46,36 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::Pay {} => execute_pay(deps, env),
-        ExecuteMsg::UpdateConfig { owner,} => execute_update_config(info, deps, owner),
+        ExecuteMsg::UpdateConfig { owner } => execute_update_config(info, deps, owner),
         ExecuteMsg::StopPayment { id } => execute_stop_payment(info, deps, id),
+        ExecuteMsg::AddPayments { schedule } => execute_add_payments(info, deps, schedule),
     }
+}
+
+pub fn execute_add_payments(
+    info: MessageInfo,
+    deps: DepsMut,
+    schedule: Vec<Payment>,
+) -> Result<Response, ContractError> {
+    let config: Config = CONFIG.load(deps.storage)?;
+    if info.sender != config.owner {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    for p in schedule.into_iter() {
+        let id = next_id(deps.storage)?;
+        PAYMENTS.save(
+            deps.storage,
+            id.into(),
+            &PaymentState {
+                payment: p,
+                paid: false,
+                stopped: false,
+                id,
+            },
+        )?;
+    }
+    Ok(Response::new().add_attribute("method", "instantiate"))
 }
 
 pub fn execute_stop_payment(
@@ -92,8 +117,7 @@ pub fn execute_update_config(
     config.owner = owner.clone();
 
     CONFIG.save(deps.storage, &config)?;
-    Ok(Response::new()
-        .add_attribute("owner", owner.to_string()))
+    Ok(Response::new().add_attribute("owner", owner.to_string()))
 }
 
 pub fn execute_pay(deps: DepsMut, env: Env) -> Result<Response, ContractError> {

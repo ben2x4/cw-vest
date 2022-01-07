@@ -11,6 +11,11 @@ pub struct InstantiateMsg {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct AddPayments {
+    pub schedule: Vec<Payment>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Payment {
     pub recipient: Addr,
     pub amount: Uint128,
@@ -23,6 +28,7 @@ pub struct Payment {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     Pay {},
+    AddPayments { schedule: Vec<Payment> },
     UpdateConfig { owner: Addr },
     StopPayment { id: u64 },
 }
@@ -36,7 +42,7 @@ pub enum QueryMsg {
 // We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct ConfigResponse {
-    pub owner: Addr
+    pub owner: Addr,
 }
 
 // We define a custom struct for each query response
