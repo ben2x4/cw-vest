@@ -20,7 +20,6 @@ pub fn instantiate(
     let owner = deps.api.addr_validate(msg.owner.as_str())?;
     let config = Config {
         owner,
-        enabled: true,
     };
     CONFIG.save(deps.storage, &config)?;
 
@@ -32,6 +31,7 @@ pub fn instantiate(
             &PaymentState {
                 payment: p,
                 paid: false,
+                stopped: false,
                 id,
             },
         )?;
@@ -48,17 +48,41 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::Pay {} => execute_pay(deps, env),
-        ExecuteMsg::UpdateConfig { owner, enabled } => {
-            execute_update_config(info, deps, owner, enabled)
-        }
+        ExecuteMsg::UpdateConfig { owner,} => execute_update_config(info, deps, owner),
+        ExecuteMsg::StopPayment { id } => execute_stop_payment(info, deps, id),
     }
+}
+
+pub fn execute_stop_payment(
+    info: MessageInfo,
+    deps: DepsMut,
+    id: u64,
+) -> Result<Response, ContractError> {
+    let config: Config = CONFIG.load(deps.storage)?;
+    if info.sender != config.owner {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    let payment = PAYMENTS
+        .may_load(deps.storage, id.into())?
+        .ok_or(ContractError::PaymentNotFound {})?;
+
+    if payment.paid {
+        return Err(ContractError::AlreadyPaid {});
+    }
+
+    if payment.stopped {
+        return Err(ContractError::PaymentStopped {});
+    }
+
+    let refund_message = get_send_tokens_message(deps.as_ref(), &payment.payment, true)?;
+    Ok(Response::new().add_message(refund_message))
 }
 
 pub fn execute_update_config(
     info: MessageInfo,
     deps: DepsMut,
     owner: Addr,
-    enabled: bool,
 ) -> Result<Response, ContractError> {
     let mut config: Config = CONFIG.load(deps.storage)?;
     if info.sender != config.owner {
@@ -66,34 +90,27 @@ pub fn execute_update_config(
     }
 
     config.owner = owner.clone();
-    config.enabled = enabled;
 
     CONFIG.save(deps.storage, &config)?;
     Ok(Response::new()
-        .add_attribute("owner", owner.to_string())
-        .add_attribute("enabled", enabled.to_string()))
+        .add_attribute("owner", owner.to_string()))
 }
 
 pub fn execute_pay(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
-    let config: Config = CONFIG.load(deps.storage)?;
-    if !config.enabled {
-        return Err(ContractError::PaymentsDisabled {});
-    }
-
     let to_be_paid: Vec<PaymentState> = PAYMENTS
         .range(deps.storage, None, None, Order::Ascending)
         .filter_map(|r| match r {
             Ok(r) => Some(r.1),
             _ => None,
         })
-        .filter(|p| !p.paid && p.payment.time.is_expired(&env.block))
+        .filter(|p| !p.stopped && !p.paid && p.payment.time.is_expired(&env.block))
         .collect();
 
     // Get cosmos payment messages
     let payment_msgs: Vec<CosmosMsg> = to_be_paid
         .clone()
         .into_iter()
-        .map(|p| get_payment_message(&p.payment))
+        .map(|p| get_send_tokens_message(deps.as_ref(), &p.payment, false))
         .collect::<StdResult<Vec<CosmosMsg>>>()?;
 
     // Update payments to paid
@@ -107,38 +124,33 @@ pub fn execute_pay(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
     Ok(Response::new().add_messages(payment_msgs))
 }
 
-pub fn get_payment_message(p: &Payment) -> StdResult<CosmosMsg> {
-    match p.token_address {
-        Some(_) => get_token_payment(p),
-        None => get_native_payment(p),
+pub fn get_send_tokens_message(deps: Deps, p: &Payment, refund: bool) -> StdResult<CosmosMsg> {
+    let mut recipient = p.recipient.to_string();
+
+    if refund {
+        let config: Config = CONFIG.load(deps.storage)?;
+        recipient = config.owner.to_string();
     }
-}
 
-pub fn get_token_payment(p: &Payment) -> StdResult<CosmosMsg> {
-    let transfer_cw20_msg = Cw20ExecuteMsg::Transfer {
-        recipient: p.recipient.to_string(),
-        amount: p.amount,
-    };
-
-    let exec_cw20_transfer = WasmMsg::Execute {
-        contract_addr: p.token_address.clone().unwrap().to_string(),
-        msg: to_binary(&transfer_cw20_msg)?,
-        funds: vec![],
-    };
-
-    Ok(exec_cw20_transfer.into())
-}
-
-pub fn get_native_payment(p: &Payment) -> StdResult<CosmosMsg> {
-    let transfer_bank_msg = cosmwasm_std::BankMsg::Send {
-        to_address: p.recipient.clone().into_string(),
-        amount: vec![Coin {
-            denom: p.denom.clone(),
-            amount: p.amount,
-        }],
-    };
-
-    Ok(transfer_bank_msg.into())
+    match p.token_address {
+        Some(_) => Ok(WasmMsg::Execute {
+            contract_addr: p.token_address.clone().unwrap().to_string(),
+            msg: to_binary(&Cw20ExecuteMsg::Transfer {
+                recipient,
+                amount: p.amount,
+            })?,
+            funds: vec![],
+        }
+        .into()),
+        None => Ok(cosmwasm_std::BankMsg::Send {
+            to_address: recipient,
+            amount: vec![Coin {
+                denom: p.denom.clone(),
+                amount: p.amount,
+            }],
+        }
+        .into()),
+    }
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -165,7 +177,6 @@ fn query_config(deps: Deps) -> StdResult<ConfigResponse> {
     let config: Config = CONFIG.load(deps.storage)?;
     Ok(ConfigResponse {
         owner: config.owner,
-        enabled: config.enabled,
     })
 }
 
@@ -329,7 +340,6 @@ mod tests {
         let res = query(deps.as_ref(), mock_env(), QueryMsg::GetConfig {}).unwrap();
         let value: ConfigResponse = from_binary(&res).unwrap();
         assert_eq!(value.owner, Addr::unchecked(OWNER));
-        assert!(value.enabled)
     }
 
     #[test]
@@ -356,25 +366,17 @@ mod tests {
 
         let msg = ExecuteMsg::UpdateConfig {
             owner: Addr::unchecked("owner2"),
-            enabled: false,
         };
         execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
         let res = query(deps.as_ref(), mock_env(), QueryMsg::GetConfig {}).unwrap();
         let value: ConfigResponse = from_binary(&res).unwrap();
         assert_eq!(value.owner, Addr::unchecked("owner2"));
-        assert!(!value.enabled);
-
-        // try sending payment while disabled
-        let msg = ExecuteMsg::Pay {};
-        let err = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap_err();
-        assert_eq!(err, ContractError::PaymentsDisabled {});
 
         // try updating with invalid owner
 
         let msg = ExecuteMsg::UpdateConfig {
             owner: Addr::unchecked(OWNER),
-            enabled: false,
         };
         let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
 

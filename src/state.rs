@@ -8,7 +8,6 @@ use cw_storage_plus::{Item, Map, U64Key};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {
     pub owner: Addr,
-    pub enabled: bool,
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");
@@ -17,6 +16,7 @@ pub const CONFIG: Item<Config> = Item::new("config");
 pub struct PaymentState {
     pub payment: Payment,
     pub paid: bool,
+    pub stopped: bool,
     pub id: u64,
 }
 
