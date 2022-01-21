@@ -1,61 +1,115 @@
-version: 2.1
-
-executors:
-  builder:
-    docker:
-      - image: buildpack-deps:trusty
-
-jobs:
-  docker-image:
-    executor: builder
-    steps:
-      - checkout
-      - setup_remote_docker
-        docker_layer_caching: true
-      - run:
-          name: Build Docker artifact
-          command: docker build --pull -t "cosmwasm/cw-gitpod-base:${CIRCLE_SHA1}" .
-      - run:
-          name: Push application Docker image to docker hub
-          command: |
-            if [ "${CIRCLE_BRANCH}" = "master" ]; then
-              docker tag "cosmwasm/cw-gitpod-base:${CIRCLE_SHA1}" cosmwasm/cw-gitpod-base:latest
-              docker login --password-stdin -u "$DOCKER_USER" \<<<"$DOCKER_PASS"
-              docker push cosmwasm/cw-gitpod-base:latest
-              docker logout
-            fi
-
-  docker-tagged:
-    executor: builder
-    steps:
-      - checkout
-      - setup_remote_docker
-        docker_layer_caching: true
-      - run:
-          name: Push application Docker image to docker hub
-          command: |
-            docker tag "cosmwasm/cw-gitpod-base:${CIRCLE_SHA1}" "cosmwasm/cw-gitpod-base:${CIRCLE_TAG}"
-            docker login --password-stdin -u "$DOCKER_USER" \<<<"$DOCKER_PASS"
-            docker push
-            docker logout
-
+version: 2
 workflows:
   version: 2
-  test-suite:
+  test:
     jobs:
-      # this is now a slow process... let's only run on master
-      - docker-image:
-          filters:
-            branches:
-              only:
-                - master
-      - docker-tagged:
-          filters:
-            tags:
-              only:
-                - /^v.*/
-            branches:
-              ignore:
-                - /.*/
-            requires:
-              - docker-image
+      - cw_vest
+      - lint
+      - wasm-build
+
+jobs:
+  cw_vest:
+    docker:
+      - image: rust:1.53.0
+    working_directory: ~/project
+    steps:
+      - checkout:
+          path: ~/project
+      - run:
+          name: Version information
+          command: rustc --version; cargo --version; rustup --version
+      - restore_cache:
+          keys:
+            - cargocache-cw-vest-rust:1.53.0-{{ checksum "~/project/Cargo.lock" }}
+      - run:
+          name: Add wasm32 target
+          command: rustup target add wasm32-unknown-unknown
+      - run:
+          name: Unit Tests
+          environment:
+            RUST_BACKTRACE: 1
+          command: cargo unit-test --locked
+      - run:
+          name: Build and run schema generator
+          command: cargo schema --locked
+      - save_cache:
+          paths:
+            - /usr/local/cargo/registry
+            - target
+          key: cargocache-cw-vest-rust:1.53.0-{{ checksum "~/project/Cargo.lock" }}
+
+  lint:
+    docker:
+      - image: rust:1.53.0
+    steps:
+      - checkout
+      - run:
+          name: Version information
+          command: rustc --version; cargo --version; rustup --version; rustup target list --installed
+      - restore_cache:
+          keys:
+            - cargocache-v2-lint-rust:1.53.0-{{ checksum "Cargo.lock" }}
+      - run:
+          name: Add rustfmt component
+          command: rustup component add rustfmt
+      - run:
+          name: Add clippy component
+          command: rustup component add clippy
+      - run:
+          name: Check formatting of workspace
+          command: cargo fmt -- --check
+      - run:
+          name: Clippy linting on workspace
+          command: cargo clippy --all-targets -- -D warnings
+      - save_cache:
+          paths:
+            - /usr/local/cargo/registry
+            - target/debug/.fingerprint
+            - target/debug/build
+            - target/debug/deps
+          key: cargocache-v2-lint-rust:1.53.0-{{ checksum "Cargo.lock" }}
+
+  # This runs one time on the top level to ensure all contracts compile properly into wasm.
+  # We don't run the wasm build per contract build, and then reuse a lot of the same dependencies, so this speeds up CI time
+  # for all the other tests.
+  # We also sanity-check the resultant wasm files.
+  wasm-build:
+    docker:
+      - image: rust:1.53.0
+    steps:
+      - checkout:
+          path: ~/project
+      - run:
+          name: Version information
+          command: rustc --version; cargo --version; rustup --version
+      - restore_cache:
+          keys:
+            - cargocache-wasm-rust:1.53.0-{{ checksum "~/project/Cargo.lock" }}
+      - run:
+          name: Add wasm32 target
+          command: rustup target add wasm32-unknown-unknown
+      - run:
+          name: Build Wasm Release
+          command: |
+            for C in ./*/
+            do
+              echo "Compiling `basename $C`..."
+              (cd $C && cargo build --release --target wasm32-unknown-unknown --locked)
+            done
+      - run:
+          name: Install check_contract
+          # Uses --debug for compilation speed
+          command: cargo install --debug --version 1.0.0-beta --features iterator --example check_contract -- cosmwasm-vm
+      - save_cache:
+          paths:
+            - /usr/local/cargo/registry
+            - target
+          key: cargocache-wasm-rust:1.53.0-{{ checksum "~/project/Cargo.lock" }}
+      - run:
+          name: Check wasm contracts
+          command: |
+            for W in ./target/wasm32-unknown-unknown/release/*.wasm
+            do
+              echo -n "Checking `basename $W`... "
+              check_contract $W
+            done

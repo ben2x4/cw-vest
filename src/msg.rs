@@ -6,6 +6,12 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
+    pub owner: Addr,
+    pub schedule: Vec<Payment>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct AddPayments {
     pub schedule: Vec<Payment>,
 }
 
@@ -22,13 +28,21 @@ pub struct Payment {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     Pay {},
+    AddPayments { schedule: Vec<Payment> },
+    UpdateConfig { owner: Addr },
+    StopPayment { id: u64 },
 }
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    // GetCount returns the current count as a json-encoded number
     GetPayments {},
+    GetConfig {},
+}
+
+// We define a custom struct for each query response
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct ConfigResponse {
+    pub owner: Addr,
 }
 
 // We define a custom struct for each query response

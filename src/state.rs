@@ -2,13 +2,21 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::msg::Payment;
-use cosmwasm_std::{StdResult, Storage};
+use cosmwasm_std::{Addr, StdResult, Storage};
 use cw_storage_plus::{Item, Map, U64Key};
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Config {
+    pub owner: Addr,
+}
+
+pub const CONFIG: Item<Config> = Item::new("config");
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct PaymentState {
     pub payment: Payment,
     pub paid: bool,
+    pub stopped: bool,
     pub id: u64,
 }
 
