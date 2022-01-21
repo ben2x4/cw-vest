@@ -62,6 +62,7 @@ pub fn execute_add_payments(
         return Err(ContractError::Unauthorized {});
     }
 
+    let mut added_payments_ids: Vec<u64> = Vec::new();
     for p in schedule.into_iter() {
         let id = next_id(deps.storage)?;
         PAYMENTS.save(
@@ -74,8 +75,12 @@ pub fn execute_add_payments(
                 id,
             },
         )?;
+
+        added_payments_ids.push(id);
     }
-    Ok(Response::new().add_attribute("method", "instantiate"))
+    Ok(Response::new()
+        .add_attribute("method", "add-payments")
+        .add_attribute("payment-ids", format!("{:?}", added_payments_ids)))
 }
 
 pub fn execute_stop_payment(
