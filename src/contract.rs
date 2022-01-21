@@ -100,6 +100,10 @@ pub fn execute_stop_payment(
         return Err(ContractError::PaymentStopped {});
     }
 
+    PAYMENTS.update(deps.storage, id.into(), |p| match p {
+        Some(p) => Ok(PaymentState { stopped: true, ..p }),
+        None => Err(ContractError::PaymentNotFound {}),
+    })?;
     let refund_message = get_send_tokens_message(deps.as_ref(), &payment.payment, true)?;
     Ok(Response::new().add_message(refund_message))
 }
@@ -185,6 +189,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
+// Support range queries!!
 fn query_payments(deps: Deps) -> PaymentsResponse {
     PaymentsResponse {
         payments: PAYMENTS
@@ -384,7 +389,6 @@ mod tests {
         };
         let info = mock_info(OWNER, &coins(1000, "earth"));
 
-        // we can just call .unwrap() to assert this was a success
         let res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
         assert_eq!(0, res.messages.len());
 
@@ -637,6 +641,143 @@ mod tests {
         app.execute_contract(_payee3, vest_addr, &ExecuteMsg::Pay {}, &[])
             .unwrap();
         assert_eq!(owner_balance(&app), initial_balance + 1);
+    }
+
+    #[test]
+    fn add_payments() {
+        let mut app = mock_app();
+
+        let (owner, _funder, _payee2, _payee3) = get_accounts();
+
+        instantiate_cw20(&mut app);
+
+        let current_height = app.block_info().height;
+
+        let denom = String::from("ujuno");
+        let payments = vec![Payment {
+            recipient: owner.clone(),
+            amount: Uint128::new(1),
+            denom: denom.clone(),
+            token_address: None,
+            time: Expiration::AtHeight(current_height + 1),
+        }];
+
+        let vest_addr = instantiate_vest(&mut app, payments);
+
+        // Fund vest contract
+        app.init_bank_balance(&vest_addr, vec![coin(10, denom.clone())])
+            .unwrap();
+
+        let owner_balance = |app: &App<Empty>| {
+            app.wrap()
+                .query_balance(owner.clone(), denom.clone())
+                .unwrap()
+                .amount
+                .u128()
+        };
+        let initial_balance = owner_balance(&app);
+
+        // Payout vested tokens
+        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
+            .unwrap();
+
+        assert_eq!(owner_balance(&app), initial_balance);
+
+        // Update block and pay first payment
+        app.update_block(next_block);
+        app.execute_contract(_payee3.clone(), vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
+            .unwrap();
+        assert_eq!(owner_balance(&app), initial_balance + 1);
+
+        let initial_balance = owner_balance(&app);
+        let new_payments = vec![Payment {
+            recipient: owner.clone(),
+            amount: Uint128::new(2),
+            denom: denom.clone(),
+            token_address: None,
+            time: Expiration::AtHeight(current_height + 1),
+        }];
+        // Add additional payment and update block
+        app.execute_contract(
+            owner.clone(),
+            vest_addr.clone(),
+            &ExecuteMsg::AddPayments {
+                schedule: new_payments,
+            },
+            &[],
+        )
+        .unwrap();
+        app.update_block(next_block);
+        app.execute_contract(_payee3, vest_addr.clone(), &ExecuteMsg::Pay {}, &[])
+            .unwrap();
+        assert_eq!(owner_balance(&app), initial_balance + 2);
+    }
+
+    #[test]
+    fn stop_payments() {
+        let mut deps = mock_dependencies(&[]);
+
+        let denom = String::from("ujuno");
+        let payment = Payment {
+            recipient: Addr::unchecked(String::from("test")),
+            amount: Uint128::new(1),
+            denom: denom.clone(),
+            token_address: None,
+            time: Expiration::AtHeight(1),
+        };
+        let payment2 = Payment {
+            recipient: Addr::unchecked(String::from("test")),
+            amount: Uint128::new(2),
+            denom: denom.clone(),
+            token_address: None,
+            time: Expiration::AtHeight(1),
+        };
+        let msg = InstantiateMsg {
+            owner: Addr::unchecked(OWNER),
+            schedule: vec![payment, payment2],
+        };
+
+        let info = mock_info(OWNER, &coins(1000, denom.clone()));
+        let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+        assert_eq!(0, res.messages.len());
+
+        // Try stopping payment with invalid sender
+        let msg = ExecuteMsg::StopPayment { id: 1 };
+        let info = mock_info("fakeOwner", &coins(0, denom.clone()));
+        let err = execute(deps.as_mut(), mock_env(), info, msg.clone()).unwrap_err();
+        assert_eq!(err, ContractError::Unauthorized {});
+
+        // Stop payment using correct owner
+        let info = mock_info(OWNER, &coins(0, denom.clone()));
+        let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+        // Check if payment amount is refunded
+        assert_eq!(
+            res.messages[0],
+            cosmwasm_std::SubMsg::new(cosmwasm_std::BankMsg::Send {
+                to_address: OWNER.to_string(),
+                amount: vec![Coin {
+                    denom: denom.clone(),
+                    amount: Uint128::new(1),
+                }],
+            })
+        );
+
+        // Execute remaining payments
+        let msg = ExecuteMsg::Pay {};
+        let info = mock_info(OWNER, &coins(0, denom.clone()));
+        let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+        assert_eq!(res.messages.len(), 1);
+        assert_eq!(
+            res.messages[0],
+            cosmwasm_std::SubMsg::new(cosmwasm_std::BankMsg::Send {
+                to_address: String::from("test"),
+                amount: vec![Coin {
+                    denom,
+                    amount: Uint128::new(2),
+                }],
+            })
+        );
     }
 
     #[test]
